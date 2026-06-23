@@ -12,7 +12,7 @@ mlflow.db
 mlflow.db-shm
 mlflow.db-wal
 
-models/
+/models/
 reports/**/*.json
 reports/**/*.html
 data/**/*.csv

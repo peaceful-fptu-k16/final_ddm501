@@ -16,7 +16,7 @@ data/production/*
 
 reports/**/*.json
 reports/**/*.html
-models/
+/models/
 mlruns/
 mlartifacts/
 mlflow.db
