@@ -1,0 +1,42 @@
+groups:
+  - name: server-log-anomaly-alerts
+    rules:
+      - alert: HighAnomalyRate
+        expr: prediction_anomaly_rate > 0.2
+        for: 10m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: High anomaly rate detected
+          description: More than 20% of recent predictions are anomalies.
+
+      - alert: PredictionApiLatencyHigh
+        expr: histogram_quantile(0.95, rate(api_latency_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: Prediction API p95 latency is high
+          description: The p95 latency for /detect is above 1 second.
+
+      - alert: PredictionApiErrorRateHigh
+        expr: rate(api_error_count_total[5m]) / clamp_min(rate(api_request_count_total[5m]), 1) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: Prediction API error rate is high
+          description: More than 5% of recent prediction API requests are failing.
+
+      - alert: DataDriftDetected
+        expr: drift_score > 0.2
+        for: 1m
+        labels:
+          severity: warning
+          team: mlops
+        annotations:
+          summary: Production data drift detected
+          description: The latest drift score is above the configured threshold.
