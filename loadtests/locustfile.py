@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from locust import HttpUser, between, task
 
 NORMAL_PAYLOAD = {
@@ -26,13 +28,17 @@ ANOMALY_PAYLOAD = {
 class PredictionUser(HttpUser):
     wait_time = between(1, 3)
 
+    def on_start(self) -> None:
+        api_key = os.getenv("API_KEY")
+        self.headers = {"X-API-Key": api_key} if api_key else {}
+
     @task(4)
     def normal_prediction(self) -> None:
-        self.client.post("/detect", json=NORMAL_PAYLOAD, name="/detect normal")
+        self.client.post("/detect", json=NORMAL_PAYLOAD, headers=self.headers, name="/detect normal")
 
     @task(1)
     def anomalous_prediction(self) -> None:
-        self.client.post("/detect", json=ANOMALY_PAYLOAD, name="/detect anomaly")
+        self.client.post("/detect", json=ANOMALY_PAYLOAD, headers=self.headers, name="/detect anomaly")
 
     @task(1)
     def health(self) -> None:

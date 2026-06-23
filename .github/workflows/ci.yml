@@ -10,6 +10,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   test:
@@ -37,9 +38,12 @@ jobs:
         run: python -m pytest
 
   docker:
-    name: Docker smoke build
+    name: Docker build, scan, and publish
     runs-on: ubuntu-latest
     needs: test
+    env:
+      FASTAPI_IMAGE: ghcr.io/${{ github.repository_owner }}/final-ddm501-fastapi
+      STREAMLIT_IMAGE: ghcr.io/${{ github.repository_owner }}/final-ddm501-streamlit
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,5 +51,80 @@ jobs:
       - name: Validate compose file
         run: docker compose config
 
-      - name: Build lightweight app images
-        run: docker compose build fastapi streamlit
+      - name: Build service images
+        run: |
+          docker build -f Dockerfile.api -t "$FASTAPI_IMAGE:${{ github.sha }}" .
+          docker build -f Dockerfile.dashboard -t "$STREAMLIT_IMAGE:${{ github.sha }}" .
+
+      - name: Scan FastAPI image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.FASTAPI_IMAGE }}:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL
+
+      - name: Scan Streamlit image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.STREAMLIT_IMAGE }}:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL
+
+      - name: Login to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Publish service images
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker tag "$FASTAPI_IMAGE:${{ github.sha }}" "$FASTAPI_IMAGE:latest"
+          docker tag "$STREAMLIT_IMAGE:${{ github.sha }}" "$STREAMLIT_IMAGE:latest"
+          docker push "$FASTAPI_IMAGE:${{ github.sha }}"
+          docker push "$FASTAPI_IMAGE:latest"
+          docker push "$STREAMLIT_IMAGE:${{ github.sha }}"
+          docker push "$STREAMLIT_IMAGE:latest"
+
+  integration:
+    name: Compose integration test
+    runs-on: ubuntu-latest
+    needs: test
+    env:
+      API_KEY: ci-api-key
+      POSTGRES_PASSWORD: airflow
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start serving stack
+        run: docker compose up -d --build postgres db-migrate fastapi streamlit prometheus alertmanager grafana
+
+      - name: Verify FastAPI health
+        run: curl --fail --retry 20 --retry-delay 3 http://localhost:8000/health
+
+      - name: Verify authenticated prediction and audit log
+        run: |
+          curl --fail --request POST http://localhost:8000/detect \
+            --header "Content-Type: application/json" \
+            --header "X-API-Key: $API_KEY" \
+            --data '{"server_id":"ci-srv-01","cpu_usage":91.2,"memory_usage":86.5,"request_count":510,"error_rate":0.22,"avg_latency_ms":1350,"p95_latency_ms":2100}'
+          docker compose exec -T postgres psql -U airflow -d airflow -c "select count(*) from prediction_logs;"
+
+      - name: Verify monitoring endpoints
+        run: |
+          curl --fail --retry 10 --retry-delay 3 http://localhost:9090/-/ready
+          curl --fail --retry 10 --retry-delay 3 http://localhost:9093/-/ready
+          curl --fail --retry 10 --retry-delay 3 http://localhost:3000/api/health
+
+      - name: Show compose status
+        if: always()
+        run: docker compose ps
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

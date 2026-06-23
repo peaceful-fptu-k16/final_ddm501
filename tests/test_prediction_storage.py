@@ -27,9 +27,16 @@ def _result() -> dict[str, object]:
 def test_append_prediction_log_falls_back_to_csv(tmp_path: Path) -> None:
     log_path = tmp_path / "predictions.csv"
 
-    backend = append_prediction_log(_payload(), _result(), database_url="", fallback_path=log_path)
+    backend = append_prediction_log(
+        _payload(),
+        _result(),
+        request_id="req-123",
+        database_url="",
+        fallback_path=log_path,
+    )
     df = load_prediction_logs(database_url="", fallback_path=log_path)
 
     assert backend == "csv"
     assert len(df) == 1
     assert df.iloc[0]["prediction"] == "anomaly"
+    assert df.iloc[0]["request_id"] == "req-123"

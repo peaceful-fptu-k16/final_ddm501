@@ -10,6 +10,11 @@ import streamlit as st
 from src.storage.prediction_logs import load_prediction_logs
 
 API_URL = os.getenv("API_URL", "http://localhost:8000")
+API_KEY = os.getenv("API_KEY")
+
+
+def _auth_headers() -> dict[str, str]:
+    return {"X-API-Key": API_KEY} if API_KEY else {}
 
 st.set_page_config(page_title="Server Log Anomaly Ops", layout="wide")
 st.title("Server Log Anomaly Ops Dashboard")
@@ -26,7 +31,7 @@ with st.sidebar:
 
     if st.button("Run drift check"):
         try:
-            st.json(requests.post(f"{api_url}/drift", timeout=30).json())
+            st.json(requests.post(f"{api_url}/drift", headers=_auth_headers(), timeout=30).json())
         except Exception as exc:
             st.error(f"Drift check failed: {exc}")
 
@@ -53,7 +58,7 @@ with left:
             "p95_latency_ms": p95_latency_ms,
         }
         try:
-            response = requests.post(f"{api_url}/detect", json=payload, timeout=10)
+            response = requests.post(f"{api_url}/detect", json=payload, headers=_auth_headers(), timeout=10)
             response.raise_for_status()
             st.json(response.json())
         except Exception as exc:

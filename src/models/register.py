@@ -96,5 +96,80 @@ def register_model_if_better(
     }
 
 
+def get_registry_state(registry_dir: str | Path | None = None) -> dict[str, Any]:
+    registry = Path(registry_dir or settings.registry_dir)
+    return _load_json(registry / "registry_state.json", {"models": [], "production_version": None})
+
+
+def promote_model_version(
+    version: str,
+    registry_dir: str | Path | None = None,
+    model_dir: str | Path | None = None,
+    stage: str = "Production",
+) -> dict[str, Any]:
+    registry = Path(registry_dir or settings.registry_dir)
+    target_model_dir = Path(model_dir or settings.model_dir)
+    state_path = registry / "registry_state.json"
+    version_dir = registry / version
+    if not version_dir.exists():
+        raise FileNotFoundError(f"Model version does not exist: {version}")
+
+    state = get_registry_state(registry)
+    if not any(model.get("version") == version for model in state.get("models", [])):
+        metrics = _load_json(version_dir / "metrics.json", {})
+        state.setdefault("models", []).append({"version": version, "stage": stage, "metrics": metrics})
+
+    for model in state.get("models", []):
+        if model.get("version") == version:
+            model["stage"] = stage
+        elif stage == "Production" and model.get("stage") == "Production":
+            model["stage"] = "Archived"
+
+    if stage == "Production":
+        state["production_version"] = version
+        target_model_dir.mkdir(parents=True, exist_ok=True)
+        for filename in MODEL_FILES:
+            source = version_dir / filename
+            if source.exists():
+                shutil.copy2(source, target_model_dir / filename)
+        (version_dir / "version.txt").write_text(version, encoding="utf-8")
+        shutil.copy2(version_dir / "version.txt", target_model_dir / "version.txt")
+
+    (version_dir / "stage.txt").write_text(stage, encoding="utf-8")
+    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    return {"promoted": True, "version": version, "stage": stage, "production_version": state.get("production_version")}
+
+
+def rollback_production_model(
+    version: str,
+    registry_dir: str | Path | None = None,
+    model_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    return promote_model_version(version=version, registry_dir=registry_dir, model_dir=model_dir, stage="Production")
+
+
+def set_mlflow_registered_model_alias(
+    version: str,
+    alias: str | None = None,
+    model_name: str | None = None,
+) -> dict[str, Any]:
+    resolved_model_name = model_name or settings.mlflow_registered_model_name
+    resolved_alias = alias or settings.mlflow_registry_alias
+    if not resolved_model_name:
+        return {"updated": False, "reason": "MLFLOW_REGISTERED_MODEL_NAME is not configured"}
+
+    try:
+        import mlflow
+        from mlflow.tracking import MlflowClient
+    except ImportError:
+        return {"updated": False, "reason": "MLflow is not installed"}
+
+    if settings.mlflow_tracking_uri:
+        mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
+    client = MlflowClient()
+    client.set_registered_model_alias(resolved_model_name, resolved_alias, version)
+    return {"updated": True, "model_name": resolved_model_name, "alias": resolved_alias, "version": version}
+
+
 if __name__ == "__main__":
     print(json.dumps(register_model_if_better(), indent=2))

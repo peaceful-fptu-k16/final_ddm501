@@ -9,11 +9,13 @@ flowchart TD
     preprocess --> features["Feature engineering"]
     features --> train["Isolation Forest training"]
     train --> mlflow["MLflow tracking"]
-    mlflow --> registry["Model registry"]
-    registry --> fastapi["FastAPI /detect"]
-    fastapi --> predictions["Prediction logs"]
+    mlflow --> registry["Model registry and aliases"]
+    registry --> fastapi["FastAPI /detect with API key"]
+    migrate["Alembic db-migrate"] --> predictions["PostgreSQL prediction audit logs"]
+    fastapi --> predictions
     fastapi --> prometheus["Prometheus metrics"]
-    prometheus --> grafana["Grafana dashboard and alerts"]
+    prometheus --> grafana["Grafana dashboard"]
+    prometheus --> alertmanager["Alertmanager routing"]
     predictions --> drift["Production drift detection"]
     drift --> retrain["Airflow retraining DAG"]
     retrain --> train
@@ -28,9 +30,11 @@ flowchart TD
 | FastAPI | Serve `POST /detect`, expose `/metrics`, and trigger `/drift` |
 | Streamlit | Demo dashboard for prediction and Ops visibility |
 | Prometheus | Scrape API metrics and evaluate alert rules |
+| Alertmanager | Route warning and critical alerts to a webhook receiver |
 | Grafana | Visualize request rate, latency, anomaly rate, and drift |
-| PostgreSQL | Metadata backend for Airflow and MLflow |
+| PostgreSQL | Metadata backend for Airflow and MLflow, plus prediction audit trail |
 | MinIO | S3-compatible artifact store for MLflow |
+| db-migrate | Apply Alembic migrations before FastAPI starts |
 
 ## Key operational metrics
 
@@ -42,6 +46,7 @@ flowchart TD
 | `prediction_count_total{prediction="anomaly"}` | Anomaly predictions |
 | `prediction_anomaly_rate` | Rolling anomaly rate approximation |
 | `drift_score` | Latest production drift score |
+| `request_id` in audit table | Cross-reference API logs with prediction records |
 
 ## Promotion gates
 

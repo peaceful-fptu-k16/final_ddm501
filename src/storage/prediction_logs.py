@@ -11,6 +11,17 @@ from src.utils.config import BASE_FEATURES, ensure_directories, settings
 
 PREDICTION_COLUMNS = [
     "timestamp",
+    "request_id",
+    "server_id",
+    *BASE_FEATURES,
+    "prediction",
+    "anomaly_score",
+    "risk_level",
+    "model_version",
+]
+
+LEGACY_PREDICTION_COLUMNS = [
+    "timestamp",
     "server_id",
     *BASE_FEATURES,
     "prediction",
@@ -24,6 +35,7 @@ CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS prediction_logs (
     id BIGSERIAL PRIMARY KEY,
     timestamp TIMESTAMPTZ NOT NULL,
+    request_id TEXT,
     server_id TEXT NOT NULL,
     cpu_usage DOUBLE PRECISION NOT NULL,
     memory_usage DOUBLE PRECISION NOT NULL,
@@ -37,16 +49,21 @@ CREATE TABLE IF NOT EXISTS prediction_logs (
     model_version TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE prediction_logs
+    ADD COLUMN IF NOT EXISTS request_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_prediction_logs_timestamp
     ON prediction_logs (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_prediction_logs_prediction
     ON prediction_logs (prediction);
+CREATE INDEX IF NOT EXISTS idx_prediction_logs_request_id
+    ON prediction_logs (request_id);
 """
 
 
 INSERT_SQL = """
 INSERT INTO prediction_logs (
     timestamp,
+    request_id,
     server_id,
     cpu_usage,
     memory_usage,
@@ -60,6 +77,7 @@ INSERT INTO prediction_logs (
     model_version
 ) VALUES (
     %(timestamp)s,
+    %(request_id)s,
     %(server_id)s,
     %(cpu_usage)s,
     %(memory_usage)s,
@@ -85,10 +103,12 @@ def _normalize_row(
     payload: dict[str, object],
     result: dict[str, object],
     timestamp: datetime | None = None,
+    request_id: str | None = None,
 ) -> dict[str, object]:
     event_time = timestamp or datetime.now(UTC)
     return {
         "timestamp": event_time.isoformat(),
+        "request_id": request_id,
         "server_id": str(payload["server_id"]),
         "cpu_usage": float(payload["cpu_usage"]),
         "memory_usage": float(payload["memory_usage"]),
@@ -108,12 +128,59 @@ def _append_csv(row: dict[str, object], path: Path | None = None) -> str:
     target = Path(path or settings.production_log_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     exists = target.exists()
+    if exists:
+        _migrate_csv_schema(target)
     with target.open("a", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=PREDICTION_COLUMNS)
         if not exists:
             writer.writeheader()
         writer.writerow({column: row[column] for column in PREDICTION_COLUMNS})
     return "csv"
+
+
+def _normalize_csv_record(values: list[str]) -> dict[str, str] | None:
+    if len(values) == len(PREDICTION_COLUMNS):
+        row = dict(zip(PREDICTION_COLUMNS, values, strict=True))
+    elif len(values) == len(LEGACY_PREDICTION_COLUMNS):
+        row = dict(zip(LEGACY_PREDICTION_COLUMNS, values, strict=True))
+        row["request_id"] = ""
+    else:
+        return None
+    return {column: row.get(column, "") for column in PREDICTION_COLUMNS}
+
+
+def _read_prediction_csv(source: Path) -> pd.DataFrame:
+    with source.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.reader(handle))
+    if not rows:
+        return pd.DataFrame(columns=PREDICTION_COLUMNS)
+
+    records = [
+        normalized
+        for values in rows[1:]
+        if any(value.strip() for value in values)
+        for normalized in [_normalize_csv_record(values)]
+        if normalized is not None
+    ]
+    return pd.DataFrame(records, columns=PREDICTION_COLUMNS)
+
+
+def _migrate_csv_schema(target: Path) -> None:
+    with target.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.reader(handle))
+    if not rows:
+        return
+
+    header_is_current = rows[0] == PREDICTION_COLUMNS
+    rows_are_current = all(len(row) == len(PREDICTION_COLUMNS) for row in rows[1:])
+    if header_is_current and rows_are_current:
+        return
+
+    df = _read_prediction_csv(target)
+    with target.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=PREDICTION_COLUMNS)
+        writer.writeheader()
+        writer.writerows(df.to_dict("records"))
 
 
 def _append_postgres(row: dict[str, object], database_url: str) -> str:
@@ -129,10 +196,11 @@ def append_prediction_log(
     payload: dict[str, object],
     result: dict[str, object],
     timestamp: datetime | None = None,
+    request_id: str | None = None,
     database_url: str | None = None,
     fallback_path: str | Path | None = None,
 ) -> str:
-    row = _normalize_row(payload, result, timestamp)
+    row = _normalize_row(payload, result, timestamp, request_id)
     target_database = database_url if database_url is not None else settings.prediction_database_url
     if target_database:
         try:
@@ -153,6 +221,7 @@ def load_prediction_logs(
             query = """
             SELECT
                 timestamp,
+                request_id,
                 server_id,
                 cpu_usage,
                 memory_usage,
@@ -182,7 +251,7 @@ def load_prediction_logs(
     source = Path(fallback_path or settings.production_log_path)
     if not source.exists():
         return pd.DataFrame(columns=PREDICTION_COLUMNS)
-    df = pd.read_csv(source)
+    df = _read_prediction_csv(source)
     if limit:
         df = df.tail(limit)
     return df

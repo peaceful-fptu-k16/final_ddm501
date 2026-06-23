@@ -60,6 +60,8 @@ class Settings:
     mlflow_model_uri: str | None
     mlflow_registered_model_name: str | None
     mlflow_registry_alias: str
+    api_key: str | None
+    log_level: str
     drift_threshold: float
 
     @classmethod
@@ -90,6 +92,8 @@ class Settings:
             mlflow_model_uri=os.getenv("MLFLOW_MODEL_URI"),
             mlflow_registered_model_name=os.getenv("MLFLOW_REGISTERED_MODEL_NAME"),
             mlflow_registry_alias=os.getenv("MLFLOW_REGISTRY_ALIAS", "production"),
+            api_key=os.getenv("API_KEY"),
+            log_level=os.getenv("LOG_LEVEL", "INFO"),
             drift_threshold=float(os.getenv("DRIFT_THRESHOLD", "0.2")),
         )
 

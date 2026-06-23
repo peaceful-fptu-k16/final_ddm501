@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import os
 import time
 
 import requests
@@ -50,10 +51,11 @@ ANOMALY_PAYLOADS = [
 ]
 
 
-def send_requests(api_url: str, rounds: int, delay_seconds: float) -> None:
+def send_requests(api_url: str, rounds: int, delay_seconds: float, api_key: str | None = None) -> None:
+    headers = {"X-API-Key": api_key} if api_key else {}
     payloads = NORMAL_PAYLOADS + ANOMALY_PAYLOADS
     for index, payload in zip(range(rounds), itertools.cycle(payloads)):
-        response = requests.post(f"{api_url.rstrip('/')}/detect", json=payload, timeout=10)
+        response = requests.post(f"{api_url.rstrip('/')}/detect", json=payload, headers=headers, timeout=10)
         response.raise_for_status()
         print(f"{index + 1:03d} {payload['server_id']} -> {response.json()}")
         if delay_seconds:
@@ -63,10 +65,11 @@ def send_requests(api_url: str, rounds: int, delay_seconds: float) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Send demo requests to the anomaly detection API.")
     parser.add_argument("--api-url", default="http://localhost:8000")
+    parser.add_argument("--api-key", default=os.getenv("API_KEY"))
     parser.add_argument("--rounds", type=int, default=20)
     parser.add_argument("--delay-seconds", type=float, default=0.1)
     args = parser.parse_args()
-    send_requests(args.api_url, args.rounds, args.delay_seconds)
+    send_requests(args.api_url, args.rounds, args.delay_seconds, args.api_key)
 
 
 if __name__ == "__main__":

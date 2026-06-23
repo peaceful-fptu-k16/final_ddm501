@@ -8,3 +8,4 @@ joblib>=1.4.0
 prometheus-client>=0.20.0
 psycopg2-binary>=2.9.9
 mlflow-skinny>=2.14.0
+alembic>=1.13.0

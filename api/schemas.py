@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class DetectionRequest(BaseModel):
@@ -13,6 +13,12 @@ class DetectionRequest(BaseModel):
     error_rate: float = Field(..., ge=0, le=1)
     avg_latency_ms: float = Field(..., ge=0)
     p95_latency_ms: float = Field(..., ge=0)
+
+    @model_validator(mode="after")
+    def validate_latency_order(self) -> DetectionRequest:
+        if self.p95_latency_ms < self.avg_latency_ms:
+            raise ValueError("p95_latency_ms must be greater than or equal to avg_latency_ms")
+        return self
 
 
 class DetectionResponse(BaseModel):

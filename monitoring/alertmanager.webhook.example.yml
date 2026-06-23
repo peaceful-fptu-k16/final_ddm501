@@ -1,0 +1,17 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: incident-webhook
+  group_by:
+    - alertname
+    - severity
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: incident-webhook
+    webhook_configs:
+      - url: https://example.com/replace-with-your-slack-discord-pagerduty-bridge
+        send_resolved: true
