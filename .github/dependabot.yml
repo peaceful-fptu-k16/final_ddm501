@@ -3,14 +3,77 @@ updates:
   - package-ecosystem: pip
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - python
+    groups:
+      python-runtime:
+        patterns:
+          - fastapi
+          - uvicorn
+          - pydantic
+          - requests
+      python-ml:
+        patterns:
+          - pandas
+          - numpy
+          - scikit-learn
+          - mlflow*
+          - joblib
+    ignore:
+      - dependency-name: apache-airflow
+        update-types:
+          - version-update:semver-major
+      - dependency-name: numpy
+        update-types:
+          - version-update:semver-major
+      - dependency-name: pandas
+        update-types:
+          - version-update:semver-major
+      - dependency-name: scikit-learn
+        update-types:
+          - version-update:semver-major
+      - dependency-name: mlflow
+        update-types:
+          - version-update:semver-major
+      - dependency-name: mlflow-skinny
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: docker
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - docker
+    ignore:
+      - dependency-name: python
+        update-types:
+          - version-update:semver-major
+      - dependency-name: apache/airflow
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - github-actions
+    groups:
+      actions:
+        patterns:
+          - actions/*
+    ignore:
+      - dependency-name: actions/checkout
+        update-types:
+          - version-update:semver-major
+      - dependency-name: actions/setup-python
+        update-types:
+          - version-update:semver-major
