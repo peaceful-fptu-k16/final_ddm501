@@ -150,7 +150,7 @@ The CI workflow validates the project with:
 - Docker Compose config validation
 - FastAPI and Streamlit image smoke builds
 
-Dependabot is configured conservatively to avoid noisy major-version upgrades for Airflow, Python images, and ML dependencies.
+Dependency upgrades should be reviewed deliberately for this stack because Airflow, MLflow, NumPy, pandas, and Docker base images have tight compatibility constraints. The CI workflow is intentionally kept stable for demo and review.
 
 ## Load Testing
 
