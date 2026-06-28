@@ -9,6 +9,12 @@ from src.utils.config import ensure_directories, settings
 
 
 def generate_synthetic_metrics(rows: int = 720, seed: int = 42) -> pd.DataFrame:
+    """
+    Hàm khởi tạo ra metrics ban đầu khi chưa có dữ liệu
+    :param rows:
+    :param seed:
+    :return:
+    """
     rng = np.random.default_rng(seed)
     timestamps = pd.date_range(end=pd.Timestamp.utcnow().floor("min"), periods=rows, freq="5min")
     servers = np.array([f"srv-{idx:02d}" for idx in range(1, 6)])
@@ -22,7 +28,8 @@ def generate_synthetic_metrics(rows: int = 720, seed: int = 42) -> pd.DataFrame:
     request_count = rng.poisson(140 * business_load, rows).astype(float)
     error_rate = rng.beta(1.5, 60, rows)
     avg_latency_ms = rng.normal(220 * business_load, 60, rows)
-    p95_latency_ms = avg_latency_ms + rng.normal(120, 45, rows)
+    p95_gap_ms = np.maximum(rng.normal(120, 45, rows), 1.0)
+    p95_latency_ms = avg_latency_ms + p95_gap_ms
 
     is_anomaly = rng.random(rows) < 0.06
     spike = rng.uniform(1.4, 2.4, rows)
@@ -32,6 +39,7 @@ def generate_synthetic_metrics(rows: int = 720, seed: int = 42) -> pd.DataFrame:
     error_rate[is_anomaly] += rng.uniform(0.12, 0.38, is_anomaly.sum())
     avg_latency_ms[is_anomaly] += rng.uniform(650, 1600, is_anomaly.sum())
     p95_latency_ms[is_anomaly] += rng.uniform(900, 2200, is_anomaly.sum())
+    p95_latency_ms = np.maximum(p95_latency_ms, avg_latency_ms + 1.0)
 
     df = pd.DataFrame(
         {
@@ -64,4 +72,6 @@ def extract_server_metrics(source_path: str | Path | None = None, output_path: s
 
 
 if __name__ == "__main__":
-    print(extract_server_metrics())
+    pd.set_option("display.max_columns", None)
+    pd.set_option("display.width", None)
+    print(generate_synthetic_metrics())

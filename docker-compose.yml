@@ -65,8 +65,6 @@ services:
       --backend-store-uri postgresql://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${MLFLOW_DB:-mlflow}
       --default-artifact-root s3://${MLFLOW_ARTIFACT_BUCKET:-mlflow-artifacts}/
       --host 0.0.0.0
-      --allowed-hosts "${MLFLOW_ALLOWED_HOSTS:-*}"
-      --cors-allowed-origins "${MLFLOW_CORS_ALLOWED_ORIGINS:-*}"
       --port 5000
     ports:
       - "${MLFLOW_PORT:-5000}:5000"
@@ -102,7 +100,7 @@ services:
       MODEL_DIR: /opt/airflow/project/models/latest
       REGISTRY_DIR: /opt/airflow/project/models/registry
       REPORT_DIR: /opt/airflow/project/reports
-      PREDICTION_DATABASE_URL: postgresql://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${POSTGRES_DB:-airflow}
+      PREDICTION_DATABASE_URL: postgresql://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${MLOPS_DB:-mlops}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - .:/opt/airflow/project
@@ -147,7 +145,7 @@ services:
       MODEL_DIR: /opt/airflow/project/models/latest
       REGISTRY_DIR: /opt/airflow/project/models/registry
       REPORT_DIR: /opt/airflow/project/reports
-      PREDICTION_DATABASE_URL: postgresql://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${POSTGRES_DB:-airflow}
+      PREDICTION_DATABASE_URL: postgresql://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${MLOPS_DB:-mlops}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - .:/opt/airflow/project
@@ -167,7 +165,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      PREDICTION_DATABASE_URL: postgresql://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${POSTGRES_DB:-airflow}
+      PREDICTION_DATABASE_URL: postgresql://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${MLOPS_DB:-mlops}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     command: python scripts/migrate_db.py
     restart: "no"
@@ -185,9 +183,12 @@ services:
       REGISTRY_DIR: /app/models/registry
       DATA_DIR: /app/data
       REPORT_DIR: /app/reports
-      PREDICTION_DATABASE_URL: postgresql://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${POSTGRES_DB:-airflow}
+      PREDICTION_DATABASE_URL: postgresql://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${MLOPS_DB:-mlops}
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
       MLFLOW_MODEL_URI: ${MLFLOW_MODEL_URI:-}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       API_KEY: ${API_KEY:-local-dev-api-key}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
@@ -210,7 +211,7 @@ services:
     environment:
       API_URL: http://fastapi:8000
       PRODUCTION_LOG_PATH: /app/data/production/predictions.csv
-      PREDICTION_DATABASE_URL: postgresql://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${POSTGRES_DB:-airflow}
+      PREDICTION_DATABASE_URL: postgresql://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${MLOPS_DB:-mlops}
       API_KEY: ${API_KEY:-local-dev-api-key}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       DRIFT_REPORT_PATH: /app/reports/drift/latest_production_report.json

@@ -24,6 +24,8 @@ mlflow.db-shm
 mlflow.db-wal
 
 .env
+.idea/
+.vscode/
 .DS_Store
 compose-up.log
 compose-up.err.log

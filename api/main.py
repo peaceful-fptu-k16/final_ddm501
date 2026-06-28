@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from threading import RLock
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 
 from api.model_loader import ModelBundle
 from api.schemas import DetectionRequest, DetectionResponse
@@ -20,12 +21,14 @@ from src.monitoring.metrics import (
 )
 from src.monitoring.production import run_production_drift_detection
 from src.storage.prediction_logs import append_prediction_log
+from src.utils.config import settings
 from src.utils.structured_logging import configure_logging
 
 configure_logging()
 logger = logging.getLogger("server_log_anomaly.api")
 app = FastAPI(title="Server Log Anomaly Detection API", version="0.1.0")
 bundle = ModelBundle()
+bundle_lock = RLock()
 prediction_window: list[int] = []
 
 
@@ -70,11 +73,66 @@ async def request_logging_middleware(request: Request, call_next):
 
 @app.get("/health")
 def health() -> dict[str, object]:
+    with bundle_lock:
+        return {
+            "status": "ok",
+            "model_loaded": bundle.loaded,
+            "model_version": bundle.version,
+            "model_source": bundle.source,
+            "model_load_error": bundle.load_error,
+        }
+
+
+@app.post("/model/reload", dependencies=[Depends(require_api_key)])
+def reload_model() -> dict[str, object]:
+    global bundle
+
+    with bundle_lock:
+        previous = {
+            "model_loaded": bundle.loaded,
+            "model_version": bundle.version,
+            "model_source": bundle.source,
+        }
+    candidate = ModelBundle()
+    if settings.mlflow_model_uri and candidate.source != "mlflow":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "message": "Failed to reload production model from MLflow",
+                "previous": previous,
+                "load_error": candidate.load_error,
+            },
+        )
+    if not candidate.loaded:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "message": "Reloaded bundle has no loaded model",
+                "previous": previous,
+                "load_error": candidate.load_error,
+            },
+        )
+
+    with bundle_lock:
+        bundle = candidate
+        current = {
+            "model_loaded": bundle.loaded,
+            "model_version": bundle.version,
+            "model_source": bundle.source,
+            "model_load_error": bundle.load_error,
+        }
+    logger.info(
+        "model_reloaded",
+        extra={
+            "previous_model_version": previous["model_version"],
+            "current_model_version": current["model_version"],
+            "current_model_source": current["model_source"],
+        },
+    )
     return {
-        "status": "ok",
-        "model_loaded": bundle.loaded,
-        "model_version": bundle.version,
-        "model_source": bundle.source,
+        "status": "reloaded",
+        "previous": previous,
+        "current": current,
     }
 
 
@@ -84,7 +142,8 @@ def detect(payload: DetectionRequest, request: Request) -> DetectionResponse:
     start = time.perf_counter()
     data = _payload_to_dict(payload)
     try:
-        result = bundle.predict(data)
+        with bundle_lock:
+            result = bundle.predict(data)
         PREDICTION_COUNTER.labels(prediction=str(result["prediction"])).inc()
         prediction_window.append(1 if result["prediction"] == "anomaly" else 0)
         del prediction_window[:-100]

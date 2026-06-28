@@ -113,7 +113,7 @@ jobs:
             --header "Content-Type: application/json" \
             --header "X-API-Key: $API_KEY" \
             --data '{"server_id":"ci-srv-01","cpu_usage":91.2,"memory_usage":86.5,"request_count":510,"error_rate":0.22,"avg_latency_ms":1350,"p95_latency_ms":2100}'
-          docker compose exec -T postgres psql -U airflow -d airflow -c "select count(*) from prediction_logs;"
+          docker compose exec -T postgres psql -U airflow -d mlops -c "select count(*) from prediction_logs;"
 
       - name: Verify monitoring endpoints
         run: |

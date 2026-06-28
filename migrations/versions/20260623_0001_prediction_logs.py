@@ -14,11 +14,13 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
+TABLE = "prediction_logs"
+
 
 def upgrade() -> None:
     op.execute(
-        """
-        CREATE TABLE IF NOT EXISTS prediction_logs (
+        f"""
+        CREATE TABLE IF NOT EXISTS {TABLE} (
             id BIGSERIAL PRIMARY KEY,
             timestamp TIMESTAMPTZ NOT NULL,
             request_id TEXT,
@@ -37,23 +39,23 @@ def upgrade() -> None:
         );
         """
     )
-    op.execute("ALTER TABLE prediction_logs ADD COLUMN IF NOT EXISTS request_id TEXT;")
+    op.execute(f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS request_id TEXT;")
     op.execute(
-        """
+        f"""
         CREATE INDEX IF NOT EXISTS idx_prediction_logs_timestamp
-            ON prediction_logs (timestamp DESC);
+            ON {TABLE} (timestamp DESC);
         """
     )
     op.execute(
-        """
+        f"""
         CREATE INDEX IF NOT EXISTS idx_prediction_logs_prediction
-            ON prediction_logs (prediction);
+            ON {TABLE} (prediction);
         """
     )
     op.execute(
-        """
+        f"""
         CREATE INDEX IF NOT EXISTS idx_prediction_logs_request_id
-            ON prediction_logs (request_id);
+            ON {TABLE} (request_id);
         """
     )
 
@@ -62,4 +64,4 @@ def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS idx_prediction_logs_request_id;")
     op.execute("DROP INDEX IF EXISTS idx_prediction_logs_prediction;")
     op.execute("DROP INDEX IF EXISTS idx_prediction_logs_timestamp;")
-    op.execute("DROP TABLE IF EXISTS prediction_logs;")
+    op.execute(f"DROP TABLE IF EXISTS {TABLE};")

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import argparse
-import itertools
 import os
+import random
 import time
 
 import requests
@@ -51,13 +51,23 @@ ANOMALY_PAYLOADS = [
 ]
 
 
-def send_requests(api_url: str, rounds: int, delay_seconds: float, api_key: str | None = None) -> None:
+def send_requests(
+    api_url: str,
+    rounds: int,
+    delay_seconds: float,
+    api_key: str | None = None,
+    anomaly_probability: float = 0.1,
+    seed: int | None = None,
+) -> None:
     headers = {"X-API-Key": api_key} if api_key else {}
-    payloads = NORMAL_PAYLOADS + ANOMALY_PAYLOADS
-    for index, payload in zip(range(rounds), itertools.cycle(payloads)):
+    rng = random.Random(seed)
+    for index in range(rounds):
+        expected_class = "anomaly" if rng.random() < anomaly_probability else "normal"
+        payloads = ANOMALY_PAYLOADS if expected_class == "anomaly" else NORMAL_PAYLOADS
+        payload = rng.choice(payloads)
         response = requests.post(f"{api_url.rstrip('/')}/detect", json=payload, headers=headers, timeout=10)
         response.raise_for_status()
-        print(f"{index + 1:03d} {payload['server_id']} -> {response.json()}")
+        print(f"{index + 1:03d} {expected_class:7s} {payload['server_id']} -> {response.json()}")
         if delay_seconds:
             time.sleep(delay_seconds)
 
@@ -65,11 +75,15 @@ def send_requests(api_url: str, rounds: int, delay_seconds: float, api_key: str 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Send demo requests to the anomaly detection API.")
     parser.add_argument("--api-url", default="http://localhost:8000")
-    parser.add_argument("--api-key", default=os.getenv("API_KEY"))
-    parser.add_argument("--rounds", type=int, default=20)
-    parser.add_argument("--delay-seconds", type=float, default=0.1)
+    parser.add_argument("--api-key", default=os.getenv("API_KEY", "ddm501-demo-api-key"))
+    parser.add_argument("--rounds", type=int, default=200)
+    parser.add_argument("--delay-seconds", type=float, default=0.2)
+    parser.add_argument("--anomaly-probability", type=float, default=0.05)
+    parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
-    send_requests(args.api_url, args.rounds, args.delay_seconds, args.api_key)
+    if not 0 <= args.anomaly_probability <= 1:
+        parser.error("--anomaly-probability must be between 0 and 1")
+    send_requests(args.api_url, args.rounds, args.delay_seconds, args.api_key, args.anomaly_probability, args.seed)
 
 
 if __name__ == "__main__":

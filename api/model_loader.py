@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,8 @@ import numpy as np
 import pandas as pd
 
 from src.utils.config import BASE_FEATURES, FEATURE_COLUMNS, settings
+
+logger = logging.getLogger("server_log_anomaly.model_loader")
 
 
 class ModelBundle:
@@ -20,6 +23,7 @@ class ModelBundle:
         self.feature_columns = FEATURE_COLUMNS
         self.version = "heuristic"
         self.source = "heuristic"
+        self.load_error: str | None = None
         self.load()
 
     @staticmethod
@@ -65,6 +69,7 @@ class ModelBundle:
         try:
             import mlflow
             import mlflow.sklearn
+            from mlflow.tracking import MlflowClient
         except ImportError:
             return False
 
@@ -73,13 +78,29 @@ class ModelBundle:
                 mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
             self.model = mlflow.sklearn.load_model(self.mlflow_model_uri)
             self.source = "mlflow"
-            self.version = self.mlflow_model_uri or "mlflow"
+            self.version = self._resolve_mlflow_version(MlflowClient())
             self.feature_columns = FEATURE_COLUMNS
+            self.load_error = None
             return True
-        except Exception:
+        except Exception as exc:
+            self.load_error = f"MLflow model load failed: {exc}"
+            logger.warning("mlflow_model_load_failed", exc_info=True)
             self.model = None
             self.source = "heuristic"
             return False
+
+    def _resolve_mlflow_version(self, client: Any) -> str:
+        if not self.mlflow_model_uri:
+            return "mlflow"
+        prefix = "models:/"
+        if self.mlflow_model_uri.startswith(prefix) and "@" in self.mlflow_model_uri:
+            model_name, alias = self.mlflow_model_uri[len(prefix) :].split("@", 1)
+            try:
+                model_version = client.get_model_version_by_alias(model_name, alias)
+                return f"{model_name}@{alias}:v{model_version.version}"
+            except Exception:
+                return self.mlflow_model_uri
+        return self.mlflow_model_uri
 
     def _vectorize(self, payload: dict[str, Any]) -> np.ndarray:
         values: dict[str, float] = {feature: float(payload.get(feature, 0.0)) for feature in BASE_FEATURES}

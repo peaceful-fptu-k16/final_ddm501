@@ -162,10 +162,16 @@ Invoke-WebRequest http://localhost:9093/-/ready
 Invoke-WebRequest http://localhost:3000/api/health
 ```
 
+Reload the currently configured MLflow production model without restarting FastAPI:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/model/reload -Method Post -Headers @{ "X-API-Key" = "local-dev-api-key" }
+```
+
 Check prediction audit logs:
 
 ```powershell
-docker compose exec -T postgres psql -U airflow -d airflow -c "select timestamp, request_id, prediction, model_version from prediction_logs order by timestamp desc limit 5;"
+docker compose exec -T postgres psql -U airflow -d mlops -c "select timestamp, request_id, prediction, model_version from prediction_logs order by timestamp desc limit 5;"
 ```
 
 ## CI/CD

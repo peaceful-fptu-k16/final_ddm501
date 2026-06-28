@@ -24,6 +24,12 @@ def _load_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
 
 
 def _is_better(candidate: dict[str, Any], current: dict[str, Any] | None) -> bool:
+    """
+    Hàm định nghĩa cho biết model mới có tốt hơn so với model đang serving
+    :param candidate:
+    :param current:
+    :return:
+    """
     if current is None:
         return True
     candidate_f1 = float(candidate.get("f1_score", 0.0))

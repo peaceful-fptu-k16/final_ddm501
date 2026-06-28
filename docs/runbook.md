@@ -47,6 +47,12 @@ $body = @{
 Invoke-RestMethod http://localhost:8000/detect -Method Post -Headers $headers -ContentType "application/json" -Body $body
 ```
 
+Reload the production model from MLflow after moving the `production` alias:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/model/reload -Method Post -Headers $headers
+```
+
 ## Database Migrations
 
 Migrations are applied automatically by the `db-migrate` service before FastAPI starts.
@@ -60,7 +66,7 @@ docker compose run --rm db-migrate
 Verify the audit table:
 
 ```powershell
-docker compose exec -T postgres psql -U airflow -d airflow -c "select timestamp, request_id, prediction, model_version from prediction_logs order by timestamp desc limit 5;"
+docker compose exec -T postgres psql -U airflow -d mlops -c "select timestamp, request_id, prediction, model_version from prediction_logs order by timestamp desc limit 5;"
 ```
 
 ## Common Incidents

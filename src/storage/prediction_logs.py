@@ -30,9 +30,12 @@ LEGACY_PREDICTION_COLUMNS = [
     "model_version",
 ]
 
+TABLE_NAME = "prediction_logs"
 
-CREATE_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS prediction_logs (
+
+def _create_table_sql() -> str:
+    return f"""
+CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
     id BIGSERIAL PRIMARY KEY,
     timestamp TIMESTAMPTZ NOT NULL,
     request_id TEXT,
@@ -49,19 +52,20 @@ CREATE TABLE IF NOT EXISTS prediction_logs (
     model_version TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-ALTER TABLE prediction_logs
+ALTER TABLE {TABLE_NAME}
     ADD COLUMN IF NOT EXISTS request_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_prediction_logs_timestamp
-    ON prediction_logs (timestamp DESC);
+    ON {TABLE_NAME} (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_prediction_logs_prediction
-    ON prediction_logs (prediction);
+    ON {TABLE_NAME} (prediction);
 CREATE INDEX IF NOT EXISTS idx_prediction_logs_request_id
-    ON prediction_logs (request_id);
+    ON {TABLE_NAME} (request_id);
 """
 
 
-INSERT_SQL = """
-INSERT INTO prediction_logs (
+def _insert_sql() -> str:
+    return f"""
+INSERT INTO {TABLE_NAME} (
     timestamp,
     request_id,
     server_id,
@@ -91,6 +95,30 @@ INSERT INTO prediction_logs (
     %(model_version)s
 );
 """
+
+
+def _select_sql(limit: int | None = None) -> str:
+    query = f"""
+            SELECT
+                timestamp,
+                request_id,
+                server_id,
+                cpu_usage,
+                memory_usage,
+                request_count,
+                error_rate,
+                avg_latency_ms,
+                p95_latency_ms,
+                prediction,
+                anomaly_score,
+                risk_level,
+                model_version
+            FROM {TABLE_NAME}
+            ORDER BY timestamp DESC
+            """
+    if limit:
+        query += f" LIMIT {int(limit)}"
+    return query
 
 
 def _connect(database_url: str):
@@ -187,8 +215,8 @@ def _append_postgres(row: dict[str, object], database_url: str) -> str:
     with closing(_connect(database_url)) as connection:
         with connection:
             with connection.cursor() as cursor:
-                cursor.execute(CREATE_TABLE_SQL)
-                cursor.execute(INSERT_SQL, row)
+                cursor.execute(_create_table_sql())
+                cursor.execute(_insert_sql(), row)
     return "postgres"
 
 
@@ -218,31 +246,11 @@ def load_prediction_logs(
     target_database = database_url if database_url is not None else settings.prediction_database_url
     if target_database:
         try:
-            query = """
-            SELECT
-                timestamp,
-                request_id,
-                server_id,
-                cpu_usage,
-                memory_usage,
-                request_count,
-                error_rate,
-                avg_latency_ms,
-                p95_latency_ms,
-                prediction,
-                anomaly_score,
-                risk_level,
-                model_version
-            FROM prediction_logs
-            ORDER BY timestamp DESC
-            """
-            if limit:
-                query += f" LIMIT {int(limit)}"
             with closing(_connect(target_database)) as connection:
                 with connection.cursor() as cursor:
-                    cursor.execute(CREATE_TABLE_SQL)
+                    cursor.execute(_create_table_sql())
                 connection.commit()
-                df = pd.read_sql_query(query, connection)
+                df = pd.read_sql_query(_select_sql(limit), connection)
             if not df.empty:
                 return df.sort_values("timestamp")
         except Exception:

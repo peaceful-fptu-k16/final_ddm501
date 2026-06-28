@@ -8,12 +8,17 @@ from src.data.validate import validate_raw_data
 from src.utils.config import NUMERIC_RANGES, ensure_directories, settings
 
 
-def preprocess_data(input_path: str | Path | None = None, output_path: str | Path | None = None) -> Path:
+def preprocess_data(
+        input_path: str | Path | None = None,
+        output_path: str | Path | None = None) -> Path:
+
     ensure_directories()
     source = Path(input_path or settings.raw_data_path)
     output = Path(output_path or settings.processed_data_path)
 
+    # Dư thừa vì trong pipeline đã gọi validate rồi.
     validate_raw_data(source, fail_on_error=True)
+
     df = pd.read_csv(source)
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
     df = df.dropna(subset=["timestamp", "server_id"]).drop_duplicates()
