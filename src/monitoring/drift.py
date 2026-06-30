@@ -30,6 +30,111 @@ def population_stability_index(reference: pd.Series, current: pd.Series, bins: i
     return float(np.sum((cur_pct - ref_pct) * np.log(cur_pct / ref_pct)))
 
 
+def categorical_population_stability_index(reference: pd.Series, current: pd.Series) -> float:
+    ref = reference.dropna().astype(str)
+    cur = current.dropna().astype(str)
+    if ref.empty or cur.empty:
+        return 0.0
+
+    categories = sorted(set(ref.unique()) | set(cur.unique()))
+    eps = 1e-6
+    ref_pct = np.array([(ref == category).mean() + eps for category in categories])
+    cur_pct = np.array([(cur == category).mean() + eps for category in categories])
+    return float(np.sum((cur_pct - ref_pct) * np.log(cur_pct / ref_pct)))
+
+
+def categorical_distribution(values: pd.Series) -> dict[str, float]:
+    series = values.dropna().astype(str)
+    if series.empty:
+        return {}
+    counts = series.value_counts(normalize=True).sort_index()
+    return {str(label): round(float(value), 6) for label, value in counts.items()}
+
+
+def run_prediction_drift_detection(
+    prediction_log: pd.DataFrame,
+    threshold: float | None = None,
+) -> dict[str, Any]:
+    drift_threshold = settings.drift_threshold if threshold is None else threshold
+    if prediction_log.empty:
+        return {
+            "status": "skipped",
+            "reason": "Prediction log does not contain any rows",
+            "drift_detected": False,
+            "drift_threshold": drift_threshold,
+            "max_drift_score": 0.0,
+            "drifted_outputs": [],
+            "output_scores": {},
+        }
+    if "prediction" not in prediction_log.columns:
+        return {
+            "status": "skipped",
+            "reason": "Prediction log is missing required column: prediction",
+            "drift_detected": False,
+            "drift_threshold": drift_threshold,
+            "max_drift_score": 0.0,
+            "drifted_outputs": [],
+            "output_scores": {},
+        }
+
+    df = prediction_log.copy()
+    if "timestamp" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df = df.sort_values("timestamp")
+
+    midpoint = len(df) // 2
+    if midpoint == 0 or len(df) - midpoint == 0:
+        return {
+            "status": "skipped",
+            "reason": "Prediction log needs at least two rows to compare baseline and current windows",
+            "drift_detected": False,
+            "drift_threshold": drift_threshold,
+            "max_drift_score": 0.0,
+            "drifted_outputs": [],
+            "output_scores": {},
+        }
+
+    baseline = df.iloc[:midpoint]
+    current = df.iloc[midpoint:]
+    output_scores = {
+        "prediction_distribution": round(
+            categorical_population_stability_index(baseline["prediction"], current["prediction"]),
+            6,
+        )
+    }
+
+    payload: dict[str, Any] = {
+        "status": "completed",
+        "drift_threshold": drift_threshold,
+        "baseline_window_size": int(len(baseline)),
+        "current_window_size": int(len(current)),
+        "baseline_prediction_distribution": categorical_distribution(baseline["prediction"]),
+        "current_prediction_distribution": categorical_distribution(current["prediction"]),
+    }
+
+    if "anomaly_score" in df.columns:
+        baseline_scores = pd.to_numeric(baseline["anomaly_score"], errors="coerce").dropna()
+        current_scores = pd.to_numeric(current["anomaly_score"], errors="coerce").dropna()
+        if not baseline_scores.empty and not current_scores.empty:
+            baseline_mean = float(baseline_scores.mean())
+            current_mean = float(current_scores.mean())
+            output_scores["anomaly_score_mean_delta"] = round(abs(current_mean - baseline_mean), 6)
+            payload["baseline_anomaly_score_mean"] = round(baseline_mean, 6)
+            payload["current_anomaly_score_mean"] = round(current_mean, 6)
+
+    max_score = max(output_scores.values()) if output_scores else 0.0
+    drifted_outputs = [output for output, score in output_scores.items() if score > drift_threshold]
+    payload.update(
+        {
+            "drift_detected": bool(drifted_outputs),
+            "max_drift_score": round(max_score, 6),
+            "drifted_outputs": drifted_outputs,
+            "output_scores": output_scores,
+        }
+    )
+    return payload
+
+
 def run_drift_detection(
     reference_path: str | Path | None = None,
     current_path: str | Path | None = None,

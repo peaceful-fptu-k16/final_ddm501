@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.monitoring.drift import run_prediction_drift_detection
 from src.monitoring.production import prediction_log_to_feature_table, run_production_drift_detection
 from src.utils.config import FEATURE_COLUMNS
 
@@ -57,6 +58,20 @@ def _reference_features(path: Path, rows: int = 24) -> None:
     pd.DataFrame(records, columns=FEATURE_COLUMNS).to_csv(path, index=False)
 
 
+def _prediction_drift_log(rows: int = 20) -> pd.DataFrame:
+    records = []
+    for index in range(rows):
+        current_window = index >= rows // 2
+        records.append(
+            {
+                "timestamp": f"2026-01-01T00:{index:02d}:00Z",
+                "prediction": "anomaly" if current_window else "normal",
+                "anomaly_score": -0.6 if current_window else 0.2,
+            }
+        )
+    return pd.DataFrame(records)
+
+
 def test_prediction_log_to_feature_table_builds_expected_features(tmp_path: Path) -> None:
     log_path = tmp_path / "predictions.csv"
     output_path = tmp_path / "production_features.csv"
@@ -90,3 +105,16 @@ def test_run_production_drift_detection_reports_completed_status(tmp_path: Path)
     assert report_path.exists()
     assert current_path.exists()
     assert result["max_drift_score"] > 0
+    assert result["data_drift_detected"] is True
+    assert result["prediction_drift"]["status"] == "completed"
+    assert result["prediction_drift_detected"] is False
+
+
+def test_run_prediction_drift_detection_flags_shifted_prediction_distribution() -> None:
+    result = run_prediction_drift_detection(_prediction_drift_log(), threshold=0.2)
+
+    assert result["status"] == "completed"
+    assert result["drift_detected"] is True
+    assert "prediction_distribution" in result["drifted_outputs"]
+    assert result["baseline_prediction_distribution"] == {"normal": 1.0}
+    assert result["current_prediction_distribution"] == {"anomaly": 1.0}

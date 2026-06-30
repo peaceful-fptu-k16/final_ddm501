@@ -128,3 +128,21 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v
+
+  deploy-local:
+    name: Local CD deploy
+    runs-on: [self-hosted, windows, local-deploy]
+    needs:
+      - docker
+      - integration
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    env:
+      GHCR_OWNER: ${{ github.repository_owner }}
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy FastAPI and Streamlit from GHCR
+        shell: pwsh
+        run: .\scripts\deploy_local_cd.ps1 -GhcrOwner "$env:GHCR_OWNER" -ImageTag "$env:IMAGE_TAG"

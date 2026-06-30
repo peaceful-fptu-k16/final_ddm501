@@ -24,6 +24,7 @@ mlflow.db-shm
 mlflow.db-wal
 
 .env
+secrets/
 .idea/
 .vscode/
 .DS_Store

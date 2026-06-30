@@ -1,0 +1,8 @@
+services:
+  fastapi:
+    image: ghcr.io/${GHCR_OWNER:-peaceful-fptu-k16}/final-ddm501-fastapi:${IMAGE_TAG:-latest}
+    pull_policy: always
+
+  streamlit:
+    image: ghcr.io/${GHCR_OWNER:-peaceful-fptu-k16}/final-ddm501-streamlit:${IMAGE_TAG:-latest}
+    pull_policy: always
