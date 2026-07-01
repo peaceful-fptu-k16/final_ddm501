@@ -17,6 +17,22 @@ services:
       timeout: 5s
       retries: 5
 
+  postgres-init:
+    image: postgres:16
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-airflow}
+    command: >
+      bash -c "
+      for db in ${POSTGRES_DB:-airflow} ${MLFLOW_DB:-mlflow} ${MLOPS_DB:-mlops}; do
+        psql -h postgres -U ${POSTGRES_USER:-airflow} -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname = '$${db}'\" | grep -q 1 ||
+        psql -h postgres -U ${POSTGRES_USER:-airflow} -d postgres -c \"CREATE DATABASE \\\"$${db}\\\"\";
+      done
+      "
+    restart: "no"
+
   minio:
     image: minio/minio:RELEASE.2024-07-16T23-46-41Z
     restart: unless-stopped
@@ -52,8 +68,8 @@ services:
       dockerfile: Dockerfile.mlflow
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
       minio-init:
         condition: service_completed_successfully
     environment:
@@ -80,8 +96,8 @@ services:
       dockerfile: Dockerfile.airflow
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
       mlflow:
         condition: service_healthy
     environment:
@@ -89,6 +105,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${POSTGRES_DB:-airflow}
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-local-dev-secret}
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
       PYTHONPATH: /opt/airflow/project
       MLFLOW_TRACKING_URI: http://mlflow:5000
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
@@ -125,8 +142,8 @@ services:
       dockerfile: Dockerfile.airflow
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
       airflow-webserver:
         condition: service_healthy
     environment:
@@ -134,6 +151,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${POSTGRES_DB:-airflow}
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-local-dev-secret}
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
       PYTHONPATH: /opt/airflow/project
       MLFLOW_TRACKING_URI: http://mlflow:5000
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
@@ -162,8 +180,8 @@ services:
       context: .
       dockerfile: Dockerfile.api
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
     environment:
       PREDICTION_DATABASE_URL: postgresql://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${MLOPS_DB:-mlops}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -187,6 +205,8 @@ services:
       MLFLOW_TRACKING_URI: http://mlflow:5000
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
       MLFLOW_MODEL_URI: ${MLFLOW_MODEL_URI:-}
+      FAIRNESS_GROUP_COLUMN: ${FAIRNESS_GROUP_COLUMN:-server_id}
+      FAIRNESS_GAP_THRESHOLD: ${FAIRNESS_GAP_THRESHOLD:-0.2}
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       API_KEY: ${API_KEY:-local-dev-api-key}
@@ -210,11 +230,13 @@ services:
     restart: unless-stopped
     environment:
       API_URL: http://fastapi:8000
+      PYTHONPATH: /app
       PRODUCTION_LOG_PATH: /app/data/production/predictions.csv
       PREDICTION_DATABASE_URL: postgresql://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${MLOPS_DB:-mlops}
       API_KEY: ${API_KEY:-local-dev-api-key}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       DRIFT_REPORT_PATH: /app/reports/drift/latest_production_report.json
+      FAIRNESS_REPORT_PATH: /app/reports/fairness/latest_report.json
     volumes:
       - ./data:/app/data
       - ./reports:/app/reports
@@ -228,6 +250,25 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+
+  alertmanager-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    command: uvicorn scripts.alertmanager_airflow_bridge:app --host 0.0.0.0 --port 9099
+    environment:
+      AIRFLOW_API_URL: http://airflow-webserver:8080
+      AIRFLOW_USERNAME: ${AIRFLOW_ADMIN_USER:-admin}
+      AIRFLOW_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
+      AIRFLOW_RETRAINING_DAG_ID: ${AIRFLOW_RETRAINING_DAG_ID:-server_log_anomaly_retraining}
+      ALERT_TRIGGER_NAMES: ${ALERT_TRIGGER_NAMES:-DataDriftDetected,HighAnomalyRate}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${ALERT_BRIDGE_PORT:-9099}:9099"
+    depends_on:
+      airflow-webserver:
+        condition: service_healthy
 
   prometheus:
     image: prom/prometheus:v2.53.0

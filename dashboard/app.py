@@ -35,6 +35,24 @@ with st.sidebar:
         except Exception as exc:
             st.error(f"Drift check failed: {exc}")
 
+    if st.button("Run fairness report"):
+        try:
+            st.json(requests.post(f"{api_url}/fairness", headers=_auth_headers(), timeout=30).json())
+        except Exception as exc:
+            st.error(f"Fairness report failed: {exc}")
+
+    if st.button("Check retraining trigger"):
+        try:
+            response = requests.post(
+                f"{api_url}/retrain",
+                json={"force": False},
+                headers=_auth_headers(),
+                timeout=120,
+            )
+            st.json(response.json())
+        except Exception as exc:
+            st.error(f"Retraining check failed: {exc}")
+
 left, right = st.columns([1, 1])
 
 with left:
@@ -47,22 +65,31 @@ with left:
     avg_latency_ms = st.number_input("avg_latency_ms", min_value=0.0, value=1600.0)
     p95_latency_ms = st.number_input("p95_latency_ms", min_value=0.0, value=2400.0)
 
+    payload = {
+        "server_id": server_id,
+        "cpu_usage": cpu_usage,
+        "memory_usage": memory_usage,
+        "request_count": request_count,
+        "error_rate": error_rate,
+        "avg_latency_ms": avg_latency_ms,
+        "p95_latency_ms": p95_latency_ms,
+    }
+
     if st.button("Detect"):
-        payload = {
-            "server_id": server_id,
-            "cpu_usage": cpu_usage,
-            "memory_usage": memory_usage,
-            "request_count": request_count,
-            "error_rate": error_rate,
-            "avg_latency_ms": avg_latency_ms,
-            "p95_latency_ms": p95_latency_ms,
-        }
         try:
             response = requests.post(f"{api_url}/detect", json=payload, headers=_auth_headers(), timeout=10)
             response.raise_for_status()
             st.json(response.json())
         except Exception as exc:
             st.error(f"Prediction failed: {exc}")
+
+    if st.button("Explain"):
+        try:
+            response = requests.post(f"{api_url}/explain", json=payload, headers=_auth_headers(), timeout=30)
+            response.raise_for_status()
+            st.json(response.json())
+        except Exception as exc:
+            st.error(f"Explain failed: {exc}")
 
 with right:
     st.subheader("Recent production predictions")
@@ -88,3 +115,11 @@ with right:
             st.json(json.load(handle))
     else:
         st.info("No production drift report yet. Run the drift check first.")
+
+    st.subheader("Latest fairness report")
+    fairness_report = os.getenv("FAIRNESS_REPORT_PATH", "reports/fairness/latest_report.json")
+    if os.path.exists(fairness_report):
+        with open(fairness_report, encoding="utf-8") as handle:
+            st.json(json.load(handle))
+    else:
+        st.info("No fairness report yet. Run the fairness check first.")

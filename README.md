@@ -28,7 +28,11 @@
 | Model lifecycle | Local registry promotion gates, rollback CLI, optional MLflow alias sync |
 | Experiment tracking | MLflow server backed by PostgreSQL and MinIO artifact storage |
 | Orchestration | Airflow DAGs for training, validation, drift, and retraining |
+| Explainability | `/explain` endpoint writes feature impact reports with SHAP when available and permutation fallback |
+| Fairness monitoring | `/fairness` endpoint measures anomaly-rate parity by configurable operational segment |
+| API retraining | `/retrain` endpoint checks drift-triggered retraining or runs a forced retraining job |
 | Monitoring | Prometheus metrics, Grafana dashboard provisioning, Alertmanager routing |
+| Alert-to-retrain bridge | Alertmanager webhook can trigger the Airflow retraining DAG through the Airflow REST API |
 | CI/CD | Ruff, pytest, Compose validation, Trivy scans, GHCR image publish, Compose integration test |
 | Load testing | Locust scenario for normal and anomalous prediction traffic |
 
@@ -60,7 +64,9 @@ flowchart LR
     I --> J["PostgreSQL audit logs"]
     I --> K["Prometheus metrics"]
     K --> L["Grafana dashboards"]
-    K --> M["Alertmanager webhook"]
+    K --> M["Alertmanager"]
+    M --> P["Alertmanager Airflow bridge"]
+    P --> O["Retraining workflow"]
     J --> N["Production drift detection"]
     N --> O["Retraining workflow"]
 ```
@@ -75,6 +81,7 @@ flowchart LR
 | Streamlit | http://localhost:8501 | Operations dashboard |
 | Prometheus | http://localhost:9090 | Metrics and alert rules |
 | Alertmanager | http://localhost:9093 | Alert routing and webhook delivery |
+| Alertmanager bridge | http://localhost:9099/health | Webhook receiver that triggers Airflow DAG runs |
 | Grafana | http://localhost:3000 | Monitoring dashboards |
 | MinIO | http://localhost:9001 | S3-compatible artifact storage |
 | PostgreSQL | localhost:5432 | Metadata and prediction audit trail |
@@ -168,6 +175,26 @@ Reload the currently configured MLflow production model without restarting FastA
 Invoke-RestMethod http://localhost:8000/model/reload -Method Post -Headers @{ "X-API-Key" = "local-dev-api-key" }
 ```
 
+Explain an individual prediction:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/explain -Method Post `
+  -Headers @{ "X-API-Key" = "local-dev-api-key" } `
+  -ContentType "application/json" `
+  -Body '{"server_id":"srv-01","cpu_usage":94,"memory_usage":91,"request_count":520,"error_rate":0.32,"avg_latency_ms":1700,"p95_latency_ms":2600}'
+```
+
+Run production drift, fairness, and retraining checks:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/drift -Method Post -Headers @{ "X-API-Key" = "local-dev-api-key" }
+Invoke-RestMethod http://localhost:8000/fairness -Method Post -Headers @{ "X-API-Key" = "local-dev-api-key" }
+Invoke-RestMethod http://localhost:8000/retrain -Method Post `
+  -Headers @{ "X-API-Key" = "local-dev-api-key" } `
+  -ContentType "application/json" `
+  -Body '{"force":false,"reload_after_train":false}'
+```
+
 Check prediction audit logs:
 
 ```powershell
@@ -205,6 +232,33 @@ locust -f loadtests/locustfile.py --host http://localhost:8000
 
 Open http://localhost:8089 and start with 10-25 local users for a smoke test.
 
+Headless smoke run for report evidence:
+
+```powershell
+$env:API_KEY="local-dev-api-key"
+locust -f loadtests/locustfile.py --host http://localhost:8000 `
+  --headless -u 15 -r 5 -t 45s --csv reports/demo_evidence/loadtest
+```
+
+## Demo Evidence and Reports
+
+After the stack is running, generate real evidence from FastAPI, MLflow, Airflow, Prometheus, Grafana, PostgreSQL, Docker, and GitHub:
+
+```powershell
+python scripts/send_demo_requests.py --api-key local-dev-api-key --rounds 120 --delay-seconds 0.02 --anomaly-probability 0.25 --seed 42
+python scripts/collect_demo_evidence.py
+```
+
+Generated report artifacts:
+
+- [Vietnamese evidence report](docs/evidence_report_vi.md)
+- [Slide summary](docs/slide_summary_vi.md)
+- `reports/demo_evidence/latest_metrics.json`
+- `reports/demo_evidence/metrics_table.csv`
+- `reports/demo_evidence/*.svg`
+
+Concept drift is intentionally out of scope for this demo because production traffic does not include ground-truth labels. The stack still monitors production data drift, prediction distribution drift, explainability, fairness by configured group, runtime health, and retraining triggers.
+
 ## Repository Layout
 
 ```text
@@ -227,6 +281,8 @@ tests/                  Pytest suite
 - [Architecture notes](docs/architecture.md)
 - [Vietnamese demo guide](docs/ops_demo_vi.md)
 - [Operations runbook](docs/runbook.md)
+- [Evidence report](docs/evidence_report_vi.md)
+- [Slide summary](docs/slide_summary_vi.md)
 
 ## Production Notes
 

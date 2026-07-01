@@ -63,6 +63,8 @@ class Settings:
     api_key: str | None
     log_level: str
     drift_threshold: float
+    fairness_group_column: str
+    fairness_gap_threshold: float
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -95,6 +97,8 @@ class Settings:
             api_key=os.getenv("API_KEY"),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             drift_threshold=float(os.getenv("DRIFT_THRESHOLD", "0.2")),
+            fairness_group_column=os.getenv("FAIRNESS_GROUP_COLUMN", "server_id"),
+            fairness_gap_threshold=float(os.getenv("FAIRNESS_GAP_THRESHOLD", "0.2")),
         )
 
 
@@ -112,5 +116,7 @@ def ensure_directories() -> None:
         settings.report_dir / "data_quality",
         settings.report_dir / "model_evaluation",
         settings.report_dir / "drift",
+        settings.report_dir / "explainability",
+        settings.report_dir / "fairness",
     ]:
         path.mkdir(parents=True, exist_ok=True)

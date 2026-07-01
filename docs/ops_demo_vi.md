@@ -54,6 +54,32 @@ Co the goi qua API:
 curl -X POST http://localhost:8000/drift
 ```
 
+## 4.1. Explainability, fairness va retraining API
+
+Explain mot prediction cu the:
+
+```powershell
+curl -X POST http://localhost:8000/explain ^
+  -H "Content-Type: application/json" ^
+  -H "X-API-Key: local-dev-api-key" ^
+  -d "{\"server_id\":\"srv-01\",\"cpu_usage\":94,\"memory_usage\":91,\"request_count\":520,\"error_rate\":0.32,\"avg_latency_ms\":1700,\"p95_latency_ms\":2600}"
+```
+
+Chay fairness report tren production log:
+
+```powershell
+curl -X POST http://localhost:8000/fairness -H "X-API-Key: local-dev-api-key"
+```
+
+Kiem tra retraining trigger:
+
+```powershell
+curl -X POST http://localhost:8000/retrain ^
+  -H "Content-Type: application/json" ^
+  -H "X-API-Key: local-dev-api-key" ^
+  -d "{\"force\":false,\"reload_after_train\":false}"
+```
+
 ## 5. Chay monitoring stack nhe
 
 ```powershell
@@ -69,6 +95,12 @@ Mo:
 
 Grafana login: `admin` / `admin`.
 
+Alertmanager bridge:
+
+- Health: http://localhost:9099/health
+- Webhook: http://localhost:9099/alertmanager
+- Mac dinh trigger Airflow DAG `server_log_anomaly_retraining` khi alert `DataDriftDetected` hoac `HighAnomalyRate` firing.
+
 ## 6. Chay stack day du
 
 ```powershell
@@ -82,6 +114,22 @@ Stack day du co them Airflow, MLflow, PostgreSQL va MinIO:
 - MinIO Console: http://localhost:9001
 
 Airflow login: `admin` / `admin`.
+
+## 6.1. Sinh bao cao evidence
+
+Sau khi stack da healthy:
+
+```powershell
+python scripts/send_demo_requests.py --api-key local-dev-api-key --rounds 120 --delay-seconds 0.02 --anomaly-probability 0.25 --seed 42
+python scripts/collect_demo_evidence.py
+```
+
+Output chinh:
+
+- `docs/evidence_report_vi.md`
+- `docs/slide_summary_vi.md`
+- `reports/demo_evidence/latest_metrics.json`
+- `reports/demo_evidence/*.svg`
 
 ## 7. Noi dung thuyet trinh ngan
 

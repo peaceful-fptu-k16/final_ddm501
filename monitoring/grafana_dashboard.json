@@ -69,6 +69,72 @@
       ],
       "title": "Anomaly rate",
       "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {}
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 8
+      },
+      "id": 4,
+      "options": {},
+      "targets": [
+        {
+          "expr": "api_error_count_total",
+          "legendFormat": "errors"
+        }
+      ],
+      "title": "API error count",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {}
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 8
+      },
+      "id": 5,
+      "options": {},
+      "targets": [
+        {
+          "expr": "drift_score",
+          "legendFormat": "drift score"
+        }
+      ],
+      "title": "Latest drift score",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {}
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
+      "id": 6,
+      "options": {},
+      "targets": [
+        {
+          "expr": "sum(prediction_count_total) by (prediction)",
+          "legendFormat": "{{prediction}}"
+        }
+      ],
+      "title": "Prediction count by class",
+      "type": "barchart"
     }
   ],
   "schemaVersion": 39,

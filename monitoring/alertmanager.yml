@@ -19,7 +19,7 @@ receivers:
   - name: local-dev
   - name: local-webhook
     webhook_configs:
-      - url: http://host.docker.internal:9099/alertmanager
+      - url: http://alertmanager-bridge:9099/alertmanager
         send_resolved: true
 
 inhibit_rules:

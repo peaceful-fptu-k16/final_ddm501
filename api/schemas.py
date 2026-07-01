@@ -26,3 +26,14 @@ class DetectionResponse(BaseModel):
     anomaly_score: float
     risk_level: Literal["low", "medium", "high"]
     model_version: str
+
+
+class RetrainRequest(BaseModel):
+    force: bool = False
+    drift_threshold: float | None = Field(default=None, ge=0)
+    reload_after_train: bool = True
+
+
+class FairnessRequest(BaseModel):
+    group_column: str | None = Field(default=None, min_length=1)
+    gap_threshold: float | None = Field(default=None, ge=0, le=1)

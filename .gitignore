@@ -31,3 +31,6 @@ secrets/
 compose-up.log
 compose-up.err.log
 .locust/
+
+reports/*
+docs/assets

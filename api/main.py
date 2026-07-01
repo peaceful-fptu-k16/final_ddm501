@@ -8,8 +8,10 @@ from threading import RLock
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 
 from api.model_loader import ModelBundle
-from api.schemas import DetectionRequest, DetectionResponse
+from api.schemas import DetectionRequest, DetectionResponse, FairnessRequest, RetrainRequest
 from api.security import require_api_key
+from src.monitoring.explainability import explain_prediction
+from src.monitoring.fairness import run_fairness_report
 from src.monitoring.metrics import (
     ANOMALY_RATE_GAUGE,
     DRIFT_SCORE_GAUGE,
@@ -20,6 +22,8 @@ from src.monitoring.metrics import (
     prometheus_response,
 )
 from src.monitoring.production import run_production_drift_detection
+from src.pipeline import run_training_pipeline
+from src.retraining import trigger_retraining_if_needed
 from src.storage.prediction_logs import append_prediction_log
 from src.utils.config import settings
 from src.utils.structured_logging import configure_logging
@@ -36,6 +40,47 @@ def _payload_to_dict(payload: DetectionRequest) -> dict[str, object]:
     if hasattr(payload, "model_dump"):
         return payload.model_dump()
     return payload.dict()
+
+
+def _bundle_state(model_bundle: ModelBundle) -> dict[str, object]:
+    return {
+        "model_loaded": model_bundle.loaded,
+        "model_version": model_bundle.version,
+        "model_source": model_bundle.source,
+        "model_load_error": model_bundle.load_error,
+    }
+
+
+def _reload_model_bundle() -> dict[str, object]:
+    global bundle
+
+    with bundle_lock:
+        previous = _bundle_state(bundle)
+    candidate = ModelBundle()
+    if not candidate.loaded:
+        return {
+            "reloaded": False,
+            "previous": previous,
+            "current": _bundle_state(candidate),
+        }
+
+    with bundle_lock:
+        bundle = candidate
+        current = _bundle_state(bundle)
+
+    logger.info(
+        "model_reloaded",
+        extra={
+            "previous_model_version": previous["model_version"],
+            "current_model_version": current["model_version"],
+            "current_model_source": current["model_source"],
+        },
+    )
+    return {
+        "reloaded": True,
+        "previous": previous,
+        "current": current,
+    }
 
 
 @app.middleware("http")
@@ -85,54 +130,29 @@ def health() -> dict[str, object]:
 
 @app.post("/model/reload", dependencies=[Depends(require_api_key)])
 def reload_model() -> dict[str, object]:
-    global bundle
-
-    with bundle_lock:
-        previous = {
-            "model_loaded": bundle.loaded,
-            "model_version": bundle.version,
-            "model_source": bundle.source,
-        }
-    candidate = ModelBundle()
-    if settings.mlflow_model_uri and candidate.source != "mlflow":
+    reload_result = _reload_model_bundle()
+    if settings.mlflow_model_uri and reload_result["current"]["model_source"] != "mlflow":
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "message": "Failed to reload production model from MLflow",
-                "previous": previous,
-                "load_error": candidate.load_error,
+                "previous": reload_result["previous"],
+                "load_error": reload_result["current"]["model_load_error"],
             },
         )
-    if not candidate.loaded:
+    if not reload_result["reloaded"]:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "message": "Reloaded bundle has no loaded model",
-                "previous": previous,
-                "load_error": candidate.load_error,
+                "previous": reload_result["previous"],
+                "load_error": reload_result["current"]["model_load_error"],
             },
         )
-
-    with bundle_lock:
-        bundle = candidate
-        current = {
-            "model_loaded": bundle.loaded,
-            "model_version": bundle.version,
-            "model_source": bundle.source,
-            "model_load_error": bundle.load_error,
-        }
-    logger.info(
-        "model_reloaded",
-        extra={
-            "previous_model_version": previous["model_version"],
-            "current_model_version": current["model_version"],
-            "current_model_source": current["model_source"],
-        },
-    )
     return {
         "status": "reloaded",
-        "previous": previous,
-        "current": current,
+        "previous": reload_result["previous"],
+        "current": reload_result["current"],
     }
 
 
@@ -167,6 +187,13 @@ def detect(payload: DetectionRequest, request: Request) -> DetectionResponse:
         LATENCY_HISTOGRAM.observe(time.perf_counter() - start)
 
 
+@app.post("/explain", dependencies=[Depends(require_api_key)])
+def explain(payload: DetectionRequest) -> dict[str, object]:
+    data = _payload_to_dict(payload)
+    with bundle_lock:
+        return explain_prediction(bundle, data)
+
+
 @app.get("/metrics")
 def metrics() -> Response:
     payload, content_type = prometheus_response()
@@ -178,3 +205,29 @@ def drift() -> dict[str, object]:
     report = run_production_drift_detection()
     DRIFT_SCORE_GAUGE.set(float(report.get("max_drift_score", 0.0)))
     return report
+
+
+@app.post("/fairness", dependencies=[Depends(require_api_key)])
+def fairness(payload: FairnessRequest | None = None) -> dict[str, object]:
+    request_payload = payload or FairnessRequest()
+    return run_fairness_report(
+        group_column=request_payload.group_column,
+        gap_threshold=request_payload.gap_threshold,
+    )
+
+
+@app.post("/retrain", dependencies=[Depends(require_api_key)])
+def retrain(payload: RetrainRequest | None = None) -> dict[str, object]:
+    request_payload = payload or RetrainRequest()
+    if request_payload.force:
+        result = {
+            "retraining_triggered": True,
+            "reason": "Forced retraining requested via API",
+            "pipeline_result": run_training_pipeline(),
+        }
+    else:
+        result = trigger_retraining_if_needed(threshold=request_payload.drift_threshold)
+
+    if request_payload.reload_after_train and result.get("retraining_triggered"):
+        result["model_reload"] = _reload_model_bundle()
+    return result
